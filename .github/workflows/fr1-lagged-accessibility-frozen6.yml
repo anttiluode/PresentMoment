@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'experiments/fr1_lagged_accessibility.py'
+      - 'experiments/fr1_lagged_accessibility_v2.py'
       - 'experiments/fr1_lagged_accessibility_aggregate.py'
       - '.github/workflows/fr1-lagged-accessibility-frozen6.yml'
   workflow_dispatch:
@@ -61,7 +62,7 @@ jobs:
           SESSION: ${{ matrix.session }}
         run: |
           set -o pipefail
-          PYTHONPATH=experiments python experiments/fr1_lagged_accessibility.py \
+          PYTHONPATH=experiments python experiments/fr1_lagged_accessibility_v2.py \
             --subject "$SUBJECT" --session "$SESSION" \
             --edf "data/${SUBJECT}_ses${SESSION}_bipolar.edf" \
             --events "data/${SUBJECT}_ses${SESSION}_events.tsv" \
