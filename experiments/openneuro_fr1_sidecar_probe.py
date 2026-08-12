@@ -1,14 +1,20 @@
 """Sidecar-only probe of OpenNeuro DS004789 (FR1) via its public S3 bucket.
 
-No iEEG signal is downloaded.  The script lists the BIDS tree and fetches only small
+No iEEG signal is downloaded. The script lists the BIDS tree and fetches only small
 TSV/JSON sidecars so we can answer a practical question before attempting a real-data
 analysis:
 
     Which subjects have annotations/contact names consistent with hippocampal AND
     cortical coverage, and what are the exact recording/event file paths?
 
+The OpenNeuro bucket is named ``openneuro.org``. Because dotted bucket names do not
+match AWS's virtual-host TLS wildcard certificate, this script deliberately uses S3's
+path-style HTTPS form:
+
+    https://s3.amazonaws.com/openneuro.org/...
+
 This bypasses EEGDash's catalog layer and talks to the canonical public OpenNeuro
-storage.  It is intentionally conservative about anatomy: string matches are candidate
+storage. It is intentionally conservative about anatomy: string matches are candidate
 selection only, not final neuroanatomical labels.
 
 Run:
@@ -23,10 +29,9 @@ import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from collections import Counter
 
 
-BUCKET = "https://openneuro.org.s3.amazonaws.com/"
+S3_BUCKET_BASE = "https://s3.amazonaws.com/openneuro.org"
 DATASET = "ds004789"
 MAX_SUBJECTS = 30
 
@@ -40,7 +45,7 @@ CORTEX_WORDS = (
 
 
 def get_bytes(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-sidecar-probe/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-sidecar-probe/2"})
     with urllib.request.urlopen(req, timeout=30) as response:
         return response.read()
 
@@ -49,7 +54,7 @@ def list_objects(prefix: str, *, delimiter: str | None = None, max_keys: int = 1
     params = {"list-type": "2", "prefix": prefix, "max-keys": str(max_keys)}
     if delimiter is not None:
         params["delimiter"] = delimiter
-    url = BUCKET + "?" + urllib.parse.urlencode(params)
+    url = S3_BUCKET_BASE + "?" + urllib.parse.urlencode(params)
     root = ET.fromstring(get_bytes(url))
     ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
     keys = [n.text for n in root.findall("s3:Contents/s3:Key", ns) if n.text]
@@ -62,7 +67,7 @@ def list_objects(prefix: str, *, delimiter: str | None = None, max_keys: int = 1
 
 
 def object_url(key: str) -> str:
-    return BUCKET + urllib.parse.quote(key, safe="/")
+    return S3_BUCKET_BASE + "/" + urllib.parse.quote(key, safe="/")
 
 
 def fetch_text(key: str) -> str:
@@ -85,7 +90,6 @@ def anatomical_strings(rows: list[dict[str, str]]) -> list[str]:
 
 
 def candidate_flags(strings: list[str]) -> tuple[bool, bool, list[str], list[str]]:
-    norm = [s.lower() for s in strings]
     hip = sorted({s for s in strings if any(w in s.lower() for w in HIPPO_WORDS)})
     ctx = sorted({s for s in strings if any(w in s.lower() for w in CORTEX_WORDS)})
     return bool(hip), bool(ctx), hip[:12], ctx[:12]
@@ -93,7 +97,7 @@ def candidate_flags(strings: list[str]) -> tuple[bool, bool, list[str], list[str
 
 def main() -> None:
     print("PresentMoment: OpenNeuro FR1 sidecar-only probe")
-    print(f"bucket={BUCKET} dataset={DATASET}")
+    print(f"bucket={S3_BUCKET_BASE} dataset={DATASET}")
 
     root = list_objects(f"{DATASET}/", delimiter="/")
     subjects = sorted(p for p in root["prefixes"] if re.search(r"/sub-[^/]+/$", p))
