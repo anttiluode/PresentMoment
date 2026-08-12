@@ -1,0 +1,38 @@
+name: acw-pte-estimator-bias
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/acw_pte_estimator_bias.py'
+      - '.github/workflows/acw-pte-estimator-bias.yml'
+  workflow_dispatch:
+
+jobs:
+  colored-noise-nulls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy
+      - run: mkdir -p results
+      - name: Run independent/common-drive/timescale controls
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/acw_pte_estimator_bias.py \
+            --trials 600 \
+            --out results/acw-pte-estimator-bias.json \
+            | tee results/acw-pte-estimator-bias.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acw-pte-estimator-bias
+          path: |
+            results/acw-pte-estimator-bias.json
+            results/acw-pte-estimator-bias.txt
