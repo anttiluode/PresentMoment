@@ -20,13 +20,8 @@ jobs:
       - run: pip install numpy h5py remotezip
       - name: Reproduce public phase split and fixed lag sweep
         run: python experiments/ye_task_phase_reproduction.py
-      - name: Show compact result
-        run: python - <<'PY'
-          import json
-          p='results/ye_task_phase_reproduction.json'
-          r=json.load(open(p))
-          print(json.dumps(r['aggregate'], indent=2))
-          PY
+      - name: Show saved result
+        run: cat results/ye_task_phase_reproduction.json
       - uses: actions/upload-artifact@v4
         with:
           name: ye-task-phase-reproduction
