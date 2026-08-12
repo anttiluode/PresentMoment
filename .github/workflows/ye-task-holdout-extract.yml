@@ -1,0 +1,26 @@
+name: ye-task-holdout-extract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/ye_task_holdout_extract.py'
+      - '.github/workflows/ye-task-holdout-extract.yml'
+  workflow_dispatch:
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install remotezip
+      - run: python experiments/ye_task_holdout_extract.py
+      - run: find results/ye_task_holdout -type f -printf '%p %k KiB\n' | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-task-holdout-highband
+          path: results/ye_task_holdout
