@@ -1,0 +1,42 @@
+name: inspect-kerren-dimensionality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/inspect_kerren_dimensionality_mat.py'
+      - '.github/workflows/inspect-kerren-dim.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy scipy
+      - run: mkdir -p data results
+      - name: Download published processed MAT
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 4 --progress-bar \
+            'https://raw.githubusercontent.com/kerrencasper/Hippocampal-ripples-initiate-cortical-dimensionality-expansion-for-memory-retrieval/main/perf_dimensionality.mat' \
+            -o data/perf_dimensionality.mat
+          ls -lh data/perf_dimensionality.mat
+      - name: Inspect public dimensionality output
+        shell: bash
+        run: |
+          set -o pipefail
+          python experiments/inspect_kerren_dimensionality_mat.py data/perf_dimensionality.mat \
+            --out results/kerren-dim-inspect.json | tee results/kerren-dim-inspect.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kerren-dimensionality-inspect
+          path: |
+            results/kerren-dim-inspect.json
+            results/kerren-dim-inspect.txt
