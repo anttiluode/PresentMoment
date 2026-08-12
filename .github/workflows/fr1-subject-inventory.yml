@@ -1,0 +1,22 @@
+name: fr1-subject-inventory
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_subject_inventory.py'
+      - '.github/workflows/fr1-subject-inventory.yml'
+  workflow_dispatch:
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect one FR1 subject without downloading signal
+        run: python experiments/fr1_subject_inventory.py
