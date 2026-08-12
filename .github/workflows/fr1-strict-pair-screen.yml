@@ -1,0 +1,37 @@
+name: fr1-strict-pair-screen
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_strict_pair_screen.py'
+      - '.github/workflows/fr1-strict-pair-screen.yml'
+  workflow_dispatch:
+
+jobs:
+  strict-pair-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: mkdir -p results
+      - name: Screen first 80 FR1 subjects using BIDS sidecars only
+        shell: bash
+        run: |
+          set -o pipefail
+          python experiments/fr1_strict_pair_screen.py \
+            --max-subjects 80 \
+            --max-candidates 20 \
+            --out results/fr1-strict-pair-screen.json \
+            | tee results/fr1-strict-pair-screen.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-strict-pair-screen
+          path: |
+            results/fr1-strict-pair-screen.json
+            results/fr1-strict-pair-screen.txt
