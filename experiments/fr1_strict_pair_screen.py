@@ -7,13 +7,29 @@ downloading neural signal.
 
 A candidate session must contain:
 
-1. a bipolar channel whose BOTH constituent contacts are anatomically hippocampal
-   (hippocampus / CA fields / dentate gyrus / subiculum), and
-2. a bipolar channel whose BOTH contacts are inside one of the parietal targets used by
-   Das & Menon: angular gyrus, supramarginal gyrus, posterior cingulate or precuneus.
+1. a bipolar channel whose BOTH constituent contacts have an explicit hippocampal
+   atlas/region label (hippocampus / CA fields / dentate gyrus / subiculum), and
+2. a bipolar channel whose BOTH contacts have the SAME explicit parietal target label
+   used by Das & Menon: angular gyrus, supramarginal gyrus, posterior cingulate or
+   precuneus.
 
-The script uses only public BIDS TSV metadata from OpenNeuro DS004789. String/atlas
-matching is a screening rule, not a substitute for final visual/anatomical QC.
+Important 2026-08-12 correction
+-------------------------------
+The first version used raw substring matching across every metadata field.  That allowed
+``angular`` to match ``parstriangularis`` and therefore admitted frontal contacts into an
+`angular` pool.  It also allowed contact names/groups to participate in anatomy matching.
+
+This revision:
+
+* reads anatomy only from explicit region/location fields;
+* uses token/phrase-aware regular expressions (``angular`` cannot match
+  ``triangularis``);
+* excludes contacts whose whole-brain label explicitly says white matter from the
+  parietal pool;
+* records the exact region fields that caused inclusion.
+
+The script uses only public BIDS TSV metadata from OpenNeuro DS004789.  Atlas labels are
+a screening rule, not a substitute for final visual/anatomical QC.
 
 No EDF signal is downloaded.
 """
@@ -28,25 +44,55 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from pathlib import Path
 
 
 S3 = "https://s3.amazonaws.com/openneuro.org"
 DATASET = "ds004789"
 
-HIP_TERMS = (
-    "hippocampus", "hippocampal", " ca1", " ca2", " ca3", " dg", "dentate",
-    "subiculum", "subicular",
+# Only fields with anatomical meaning may vote on inclusion.  In particular, electrode
+# `name` and `group` are intentionally excluded.
+REGION_FIELDS = (
+    "ind.region",
+    "stein.region",
+    "das.region",
+    "wb.region",
+    "location",
+    "region",
 )
-PARIETAL_CLASSES = {
-    "angular": ("angular", "ang angular", "left ang", "right ang"),
-    "supramarginal": ("supramarg", "smg"),
-    "precuneus": ("precuneus", "pcu"),
-    "posterior_cingulate": ("posterior cing", "postcing", "pcc"),
+
+HIP_PATTERNS = (
+    re.compile(r"\bhippocamp(?:us|al)?\b", re.I),
+    re.compile(r"\bca\s*[1234]\b", re.I),
+    re.compile(r"\bdentate(?:\s+gyrus)?\b", re.I),
+    re.compile(r"\bdg\b", re.I),
+    re.compile(r"\bsubiculum\b|\bsubicular\b|\bsub\b", re.I),
+)
+
+PARIETAL_PATTERNS = {
+    "angular": (
+        re.compile(r"\bangular(?:\s+gyrus)?\b", re.I),
+        re.compile(r"\bAG\b"),
+    ),
+    "supramarginal": (
+        re.compile(r"\bsupramarginal(?:\s+gyrus)?\b", re.I),
+        re.compile(r"\bSMG\b"),
+    ),
+    "precuneus": (
+        re.compile(r"\bprecuneus\b", re.I),
+        re.compile(r"\bPCU\b"),
+    ),
+    "posterior_cingulate": (
+        re.compile(r"\bposterior\s+cingulate(?:\s+(?:cortex|gyrus))?\b", re.I),
+        re.compile(r"\bPCC\b"),
+    ),
 }
+
+WHITE_MATTER_RE = re.compile(r"\bwhite\s+matter\b", re.I)
 
 
 def get(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-strict-pair-screen/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-strict-pair-screen/2"})
     with urllib.request.urlopen(req, timeout=30) as response:
         return response.read()
 
@@ -79,23 +125,44 @@ def read_tsv(key: str) -> list[dict[str, str]]:
     return list(csv.DictReader(io.StringIO(text), delimiter="\t"))
 
 
+def region_values(row: dict[str, str]) -> dict[str, str]:
+    """Return nonempty anatomy fields only; names/groups cannot vote on anatomy."""
+    out: dict[str, str] = {}
+    for field in REGION_FIELDS:
+        value = str(row.get(field, "")).strip()
+        if value and value.lower() not in {"n/a", "na", "nan", "unknown", "none"}:
+            out[field] = value
+    return out
+
+
 def anatomy_text(row: dict[str, str]) -> str:
-    fields = (
-        "name", "group", "hemisphere", "wb.region", "ind.region", "stein.region",
-        "das.region", "location", "region",
-    )
-    return " | ".join(str(row.get(k, "")) for k in fields).lower()
+    """Human-readable explicit anatomy only (kept for logs/backward-compatible imports)."""
+    vals = region_values(row)
+    return " | ".join(f"{k}={v}" for k, v in vals.items())
+
+
+def _matches_any(values: dict[str, str], patterns: tuple[re.Pattern, ...]) -> bool:
+    return any(pattern.search(value) for value in values.values() for pattern in patterns)
+
+
+def is_white_matter(row: dict[str, str]) -> bool:
+    # `wb.region` is the most explicit whole-brain tissue label in this release.  If it
+    # says White Matter, reject the contact from the cortical target pool even if a
+    # surface atlas projects it onto a nearby gyrus.
+    wb = str(row.get("wb.region", "")).strip()
+    return bool(WHITE_MATTER_RE.search(wb))
 
 
 def is_hip(row: dict[str, str]) -> bool:
-    text = " " + anatomy_text(row)
-    return any(term in text for term in HIP_TERMS)
+    return _matches_any(region_values(row), HIP_PATTERNS)
 
 
 def parietal_class(row: dict[str, str]) -> str | None:
-    text = anatomy_text(row)
-    for cls, terms in PARIETAL_CLASSES.items():
-        if any(term in text for term in terms):
+    if is_white_matter(row):
+        return None
+    values = region_values(row)
+    for cls, patterns in PARIETAL_PATTERNS.items():
+        if _matches_any(values, patterns):
             return cls
     return None
 
@@ -128,8 +195,14 @@ def pair_candidates(electrodes: list[dict[str, str]], bipolar: list[dict[str, st
                 {
                     "channel": name,
                     "group": channel.get("group", ""),
-                    "contact_a": {"name": a, "anatomy": anatomy_text(ra)},
-                    "contact_b": {"name": b, "anatomy": anatomy_text(rb)},
+                    "contact_a": {
+                        "name": a,
+                        "anatomy": region_values(ra),
+                    },
+                    "contact_b": {
+                        "name": b,
+                        "anatomy": region_values(rb),
+                    },
                 }
             )
 
@@ -140,8 +213,14 @@ def pair_candidates(electrodes: list[dict[str, str]], bipolar: list[dict[str, st
                     "channel": name,
                     "class": ca,
                     "group": channel.get("group", ""),
-                    "contact_a": {"name": a, "anatomy": anatomy_text(ra)},
-                    "contact_b": {"name": b, "anatomy": anatomy_text(rb)},
+                    "contact_a": {
+                        "name": a,
+                        "anatomy": region_values(ra),
+                    },
+                    "contact_b": {
+                        "name": b,
+                        "anatomy": region_values(rb),
+                    },
                 }
             )
 
@@ -158,10 +237,16 @@ def session_prefix_from_key(key: str) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--max-subjects", type=int, default=80)
-    p.add_argument("--max-candidates", type=int, default=20)
+    p.add_argument("--max-subjects", type=int, default=100)
+    p.add_argument("--max-candidates", type=int, default=30)
     p.add_argument("--out", default="results/fr1-strict-pair-screen.json")
     args = p.parse_args()
+
+    # Explicit regression tests for the bug that triggered this revision.
+    assert parietal_class({"ind.region": "parstriangularis"}) is None
+    assert parietal_class({"ind.region": "angular"}) == "angular"
+    assert parietal_class({"ind.region": "angular", "wb.region": "Left Cerebral White Matter"}) is None
+    assert is_hip({"stein.region": "Left CA1"})
 
     root = list_objects(f"{DATASET}/", delimiter="/")
     subjects = sorted(
@@ -222,6 +307,7 @@ def main() -> None:
 
     payload = {
         "dataset": DATASET,
+        "screen_version": "token-exact-gray-matter-v2",
         "subjects_requested": args.max_subjects,
         "sessions_inspected": inspected_sessions,
         "candidate_count": len(candidates),
@@ -235,5 +321,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    from pathlib import Path
     main()
