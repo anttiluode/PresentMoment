@@ -1,0 +1,37 @@
+name: fr1-freeze-cohort
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_freeze_cohort.py'
+      - '.github/workflows/fr1-freeze-cohort.yml'
+  workflow_dispatch:
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: mkdir -p results
+      - name: Freeze six-subject cohort from anatomy and file size only
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/fr1_freeze_cohort.py \
+            --max-subjects 120 \
+            --n 6 \
+            --out results/fr1-frozen-cohort.json \
+            | tee results/fr1-frozen-cohort.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-frozen-cohort
+          path: |
+            results/fr1-frozen-cohort.json
+            results/fr1-frozen-cohort.txt
