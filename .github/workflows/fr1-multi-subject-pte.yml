@@ -1,0 +1,114 @@
+name: fr1-multi-subject-pte
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_multi_subject_pte.py'
+      - 'experiments/fr1_multi_subject_aggregate.py'
+      - '.github/workflows/fr1-multi-subject-pte.yml'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Independently chosen from the strict sidecar screen BEFORE connectivity
+          # outcomes: unique subjects with qualifying anatomy and relatively modest EDFs.
+          - subject: R1001P
+            session: '1'
+          - subject: R1003P
+            session: '0'
+          - subject: R1006P
+            session: '1'
+          - subject: R1020J
+            session: '0'
+          - subject: R1033D
+            session: '0'
+          - subject: R1034D
+            session: '2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy pyedflib
+      - run: mkdir -p data results
+      - name: Download public bipolar EDF + events
+        shell: bash
+        env:
+          SUBJECT: ${{ matrix.subject }}
+          SESSION: ${{ matrix.session }}
+        run: |
+          set -euo pipefail
+          base="https://s3.amazonaws.com/openneuro.org/ds004789/sub-${SUBJECT}/ses-${SESSION}/ieeg"
+          stem="sub-${SUBJECT}_ses-${SESSION}_task-FR1"
+          curl --fail --location --retry 4 --retry-delay 2 --progress-bar \
+            "$base/${stem}_acq-bipolar_ieeg.edf" \
+            -o "data/${SUBJECT}_ses${SESSION}_bipolar.edf"
+          curl --fail --location --retry 4 --retry-delay 2 \
+            "$base/${stem}_events.tsv" \
+            -o "data/${SUBJECT}_ses${SESSION}_events.tsv"
+          ls -lh "data/${SUBJECT}_ses${SESSION}_bipolar.edf"
+      - name: Run anatomy-blind-to-outcome PTE calibration
+        shell: bash
+        env:
+          SUBJECT: ${{ matrix.subject }}
+          SESSION: ${{ matrix.session }}
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/fr1_multi_subject_pte.py \
+            --subject "$SUBJECT" \
+            --session "$SESSION" \
+            --edf "data/${SUBJECT}_ses${SESSION}_bipolar.edf" \
+            --events "data/${SUBJECT}_ses${SESSION}_events.tsv" \
+            --permutations 20000 \
+            --bootstraps 10000 \
+            --out "results/fr1-pte-${SUBJECT}-ses${SESSION}.json" \
+            | tee "results/fr1-pte-${SUBJECT}-ses${SESSION}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-pte-${{ matrix.subject }}-ses${{ matrix.session }}
+          path: |
+            results/fr1-pte-${{ matrix.subject }}-ses${{ matrix.session }}.json
+            results/fr1-pte-${{ matrix.subject }}-ses${{ matrix.session }}.txt
+          if-no-files-found: warn
+
+  aggregate:
+    if: always()
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fr1-pte-*
+          path: collected
+      - run: find collected -maxdepth 3 -type f -print
+      - name: Aggregate participant-level directional indices
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python experiments/fr1_multi_subject_aggregate.py collected \
+            --out results/fr1-multi-subject-summary.json \
+            | tee results/fr1-multi-subject-summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-pte-multi-subject-summary
+          path: |
+            results/fr1-multi-subject-summary.json
+            results/fr1-multi-subject-summary.txt
