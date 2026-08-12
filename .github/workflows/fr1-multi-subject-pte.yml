@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'experiments/fr1_multi_subject_pte.py'
+      - 'experiments/fr1_multi_subject_pte_v2.py'
       - 'experiments/fr1_multi_subject_aggregate.py'
       - '.github/workflows/fr1-multi-subject-pte.yml'
   workflow_dispatch:
@@ -64,7 +65,7 @@ jobs:
           SESSION: ${{ matrix.session }}
         run: |
           set -o pipefail
-          PYTHONPATH=experiments python experiments/fr1_multi_subject_pte.py \
+          PYTHONPATH=experiments python experiments/fr1_multi_subject_pte_v2.py \
             --subject "$SUBJECT" \
             --session "$SESSION" \
             --edf "data/${SUBJECT}_ses${SESSION}_bipolar.edf" \
