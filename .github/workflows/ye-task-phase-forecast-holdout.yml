@@ -1,0 +1,28 @@
+name: ye-task-phase-forecast-holdout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/ye_task_phase_forecast_holdout.py'
+      - '.github/workflows/ye-task-phase-forecast-holdout.yml'
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy h5py remotezip scikit-learn
+      - name: Run frozen pre-stim phase forecast gate
+        run: python experiments/ye_task_phase_forecast_holdout.py
+      - name: Show result
+        run: cat results/ye_task_phase_forecast_holdout.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-task-phase-forecast-holdout
+          path: results/ye_task_phase_forecast_holdout.json
