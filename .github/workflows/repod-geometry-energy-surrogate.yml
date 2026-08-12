@@ -1,0 +1,38 @@
+name: repod-geometry-energy-surrogate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/repod_geometry_energy_surrogate.py'
+      - '.github/workflows/repod-geometry-energy-surrogate.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy scikit-learn mne pyedflib
+      - run: mkdir -p data results
+      - name: Run physical-geometry AMI spectrum-preserving null
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/repod_geometry_energy_surrogate.py \
+            --data data/repod_schizophrenia \
+            --surrogates 4 \
+            --out results/repod-geometry-energy-surrogate.json \
+            | tee results/repod-geometry-energy-surrogate.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repod-geometry-energy-surrogate
+          path: |
+            results/repod-geometry-energy-surrogate.json
+            results/repod-geometry-energy-surrogate.txt
