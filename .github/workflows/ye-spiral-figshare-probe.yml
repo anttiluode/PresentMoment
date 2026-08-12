@@ -1,0 +1,28 @@
+name: ye-spiral-figshare-probe
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/ye_spiral_figshare_probe.py'
+      - '.github/workflows/ye-spiral-figshare-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Query public Figshare article metadata only
+        run: python experiments/ye_spiral_figshare_probe.py
+      - name: Show saved metadata
+        run: cat results/ye_spiral_figshare_metadata.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-spiral-figshare-metadata
+          path: results/ye_spiral_figshare_metadata.json
