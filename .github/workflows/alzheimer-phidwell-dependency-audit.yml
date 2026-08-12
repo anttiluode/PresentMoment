@@ -1,0 +1,35 @@
+name: alzheimer-phidwell-dependency-audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/alzheimer_phidwell_dependency_audit.py'
+      - '.github/workflows/alzheimer-phidwell-dependency-audit.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy scipy
+      - run: mkdir -p results
+      - name: Audit dependency among committed Alzheimer metrics
+        shell: bash
+        run: |
+          set -o pipefail
+          python experiments/alzheimer_phidwell_dependency_audit.py \
+            --out results/alzheimer-phidwell-dependency-audit.json \
+            | tee results/alzheimer-phidwell-dependency-audit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alzheimer-phidwell-dependency-audit
+          path: |
+            results/alzheimer-phidwell-dependency-audit.json
+            results/alzheimer-phidwell-dependency-audit.txt
