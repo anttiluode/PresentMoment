@@ -1,0 +1,50 @@
+name: fr1-acw-pte-bridge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_acw_pte_bridge.py'
+      - '.github/workflows/fr1-acw-pte-bridge.yml'
+  workflow_dispatch:
+
+jobs:
+  r1022j-acw-pte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy pyedflib
+      - run: mkdir -p data results
+      - name: Download public R1022J bipolar EDF + events
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://s3.amazonaws.com/openneuro.org/ds004789/sub-R1022J/ses-0/ieeg'
+          curl --fail --location --retry 4 --retry-delay 2 --progress-bar \
+            "$base/sub-R1022J_ses-0_task-FR1_acq-bipolar_ieeg.edf" \
+            -o data/R1022J_bipolar.edf
+          curl --fail --location --retry 4 --retry-delay 2 \
+            "$base/sub-R1022J_ses-0_task-FR1_events.tsv" \
+            -o data/R1022J_events.tsv
+      - name: Test ACW-to-directed-flow bridge
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/fr1_acw_pte_bridge.py \
+            --edf data/R1022J_bipolar.edf \
+            --events data/R1022J_events.tsv \
+            --out results/fr1-acw-pte-r1022j.json \
+            | tee results/fr1-acw-pte-r1022j.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-acw-pte-r1022j
+          path: |
+            results/fr1-acw-pte-r1022j.json
+            results/fr1-acw-pte-r1022j.txt
