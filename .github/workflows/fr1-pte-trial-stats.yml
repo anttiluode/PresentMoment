@@ -1,0 +1,52 @@
+name: fr1-pte-trial-stats
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_pte_trial_stats.py'
+      - '.github/workflows/fr1-pte-trial-stats.yml'
+  workflow_dispatch:
+
+jobs:
+  r1022j-trial-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy pyedflib
+      - run: mkdir -p data results
+      - name: Download one public bipolar FR1 recording and event sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://s3.amazonaws.com/openneuro.org/ds004789/sub-R1022J/ses-0/ieeg'
+          curl --fail --location --retry 4 --retry-delay 3 --progress-bar \
+            "$base/sub-R1022J_ses-0_task-FR1_acq-bipolar_ieeg.edf" \
+            -o data/R1022J_bipolar.edf
+          curl --fail --location --retry 4 --retry-delay 3 \
+            "$base/sub-R1022J_ses-0_task-FR1_events.tsv" \
+            -o data/R1022J_events.tsv
+      - name: Run trial-level paired inference
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/fr1_pte_trial_stats.py \
+            --edf data/R1022J_bipolar.edf \
+            --events data/R1022J_events.tsv \
+            --permutations 50000 \
+            --bootstraps 20000 \
+            --out results/fr1-pte-r1022j-trial-stats.json \
+            | tee results/fr1-pte-r1022j-trial-stats.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-pte-r1022j-trial-stats
+          path: |
+            results/fr1-pte-r1022j-trial-stats.json
+            results/fr1-pte-r1022j-trial-stats.txt
