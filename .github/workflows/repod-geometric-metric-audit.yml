@@ -1,0 +1,38 @@
+name: repod-geometric-metric-audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/repod_geometric_metric_audit.py'
+      - '.github/workflows/repod-geometric-metric-audit.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy scikit-learn mne pyedflib
+      - run: mkdir -p data results
+      - name: Reproduce and audit RepOD coupling metric
+        shell: bash
+        run: |
+          set -o pipefail
+          python experiments/repod_geometric_metric_audit.py \
+            --data data/repod_schizophrenia \
+            --surrogates 6 \
+            --out results/repod-geometric-metric-audit.json \
+            | tee results/repod-geometric-metric-audit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repod-geometric-metric-audit
+          path: |
+            results/repod-geometric-metric-audit.json
+            results/repod-geometric-metric-audit.txt
