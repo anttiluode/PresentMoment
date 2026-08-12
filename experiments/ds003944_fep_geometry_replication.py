@@ -20,6 +20,11 @@ No parameter is selected using ds003944 outcomes. This 24-person gate uses a sub
 list frozen in the workflow from participants.tsv. If the predicted positive
 Psychosis-Control excess sign is absent, the gate fails; do not enlarge the sample
 in search of significance.
+
+The OpenNeuro export stores anonymous BrainVision names (EEG001...EEG064) in the
+.vhdr while BIDS channels.tsv carries the real 10-10 labels, and the resting .vhdr
+omits MarkerFile. The adapter below reconstructs only that file-format metadata; it
+never changes the frozen metric, subject list, samples, or outcome labels.
 """
 from __future__ import annotations
 
@@ -33,6 +38,19 @@ import mne
 from repod_geometry_robustness import graph_modes, seq_fullfilter, ami
 from repod_geometric_metric_audit import phase_randomize_channels
 
+# Fixed BIDS channel order from ds003944 *_channels.tsv. This maps the anonymous
+# BrainVision Ch1=EEG001 ... Ch64=EEG064 entries to their published labels.
+BIDS_64 = [
+    "FP1", "FPz", "FP2", "AF7", "AF3", "AF4", "AF6", "F7",
+    "F5", "F3", "F1", "Fz", "F2", "F4", "F6", "F8",
+    "FT9", "FT7", "FC5", "FC1", "FC2", "FC6", "FT8", "FT10",
+    "T9", "T7", "C5", "C3", "C1", "Cz", "C2", "C4",
+    "C6", "T8", "T10", "TP9", "TP7", "CP3", "CP1", "CP2",
+    "CP4", "TP8", "TP10", "P7", "P5", "P3", "P1", "Pz",
+    "P2", "P4", "P6", "P8", "PO7", "PO3", "PO4", "PO8",
+    "O1", "Oz", "O2", "Iz", "VEOG", "Misc", "ECG", "M2",
+]
+
 CANONICAL_19 = [
     "FP1", "FP2", "F7", "F3", "FZ", "F4", "F8",
     "T7", "C3", "CZ", "C4", "T8",
@@ -42,41 +60,68 @@ PREPROCESS_FS = 250.0
 USE_RAW_S = 70.0  # enough margin for initial filtering + later 64-s metric segment
 
 
-def read_brainvision(vhdr: Path):
-    """Read BrainVision robustly; the dataset may omit a marker file for rest."""
-    try:
-        return mne.io.read_raw_brainvision(vhdr, preload=True, verbose=False)
-    except FileNotFoundError as exc:
-        # If the header points at a missing marker file, create a minimal empty marker
-        # file at the referenced path. This changes no EEG samples/events.
-        text = vhdr.read_text(errors="replace")
-        marker = None
-        for line in text.splitlines():
-            if line.strip().lower().startswith("markerfile="):
-                marker = line.split("=", 1)[1].strip()
-                break
-        if not marker:
-            raise
-        vmrk = vhdr.parent / marker
+def _ensure_markerfile(vhdr: Path) -> None:
+    """Patch only missing BrainVision MarkerFile metadata for this resting export."""
+    text = vhdr.read_text(errors="replace")
+    lines = text.splitlines()
+    data_file = None
+    marker_file = None
+    data_idx = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        low = stripped.lower()
+        if low.startswith("datafile="):
+            data_file = stripped.split("=", 1)[1].strip()
+            data_idx = i
+        elif low.startswith("markerfile="):
+            marker_file = stripped.split("=", 1)[1].strip()
+
+    if data_file is None:
+        raise RuntimeError(f"BrainVision header has no DataFile: {vhdr}")
+
+    if marker_file is None:
+        marker_file = vhdr.stem + ".vmrk"
+        if data_idx is None:
+            raise RuntimeError("internal: DataFile line index missing")
+        lines.insert(data_idx + 1, f"MarkerFile={marker_file}")
+        vhdr.write_text("\n".join(lines) + "\n")
+        print(f"inserted missing MarkerFile={marker_file} into {vhdr.name}", flush=True)
+
+    vmrk = vhdr.parent / marker_file
+    if not vmrk.exists() or vmrk.stat().st_size == 0:
         vmrk.write_text(
             "Brain Vision Data Exchange Marker File, Version 1.0\n"
             "[Common Infos]\n"
-            f"DataFile={vhdr.stem.replace('_eeg','')}_eeg.eeg\n"
+            f"DataFile={data_file}\n"
             "[Marker Infos]\n"
         )
-        print(f"created empty marker sidecar {vmrk} after {exc}", flush=True)
-        return mne.io.read_raw_brainvision(vhdr, preload=True, verbose=False)
+        print(f"created empty resting marker sidecar {vmrk.name}", flush=True)
+
+
+def read_brainvision(vhdr: Path):
+    """Read the public BrainVision data after repairing only missing sidecar metadata."""
+    _ensure_markerfile(vhdr)
+    return mne.io.read_raw_brainvision(vhdr, preload=True, verbose=False)
 
 
 def preprocess(vhdr: Path):
     raw = read_brainvision(vhdr)
+
+    # ds003944's BrainVision header anonymizes channel names while BIDS channels.tsv
+    # publishes their order. Apply that deterministic adapter before choosing the
+    # already-frozen 19-channel subset.
+    anonymous = all(c.upper().startswith("EEG") for c in raw.ch_names[:60])
+    if anonymous and len(raw.ch_names) >= 64:
+        rename = {raw.ch_names[i]: BIDS_64[i] for i in range(64)}
+        raw.rename_channels(rename)
+        print("mapped EEG001..EEG064 to frozen BIDS channel order", flush=True)
+
     lookup = {c.upper().replace(" ", ""): c for c in raw.ch_names}
     missing = [c for c in CANONICAL_19 if c not in lookup]
     if missing:
         raise RuntimeError(f"missing canonical channels {missing}; available={raw.ch_names}")
     picks = [lookup[c] for c in CANONICAL_19]
     raw.pick(picks)
-    # Force canonical names/case/order so montage geometry is deterministic.
     raw.reorder_channels(picks)
     raw.rename_channels({old: new for old, new in zip(raw.ch_names, CANONICAL_19)})
     raw.filter(1.0, 45.0, verbose=False)
@@ -84,8 +129,6 @@ def preprocess(vhdr: Path):
         raw.resample(PREPROCESS_FS, verbose=False)
 
     removed = 0
-    # Match the RepOD preprocessing family: ICA with frontal channels as EOG proxies,
-    # falling back to high-kurtosis components. Fixed seed; never outcome-tuned.
     try:
         ica = mne.preprocessing.ICA(
             n_components=15, random_state=42, max_iter=500, verbose=False
