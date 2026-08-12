@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'experiments/fr1_lagged_accessibility.py'
+      - 'experiments/fr1_lagged_accessibility_r1022j.py'
       - '.github/workflows/fr1-lagged-accessibility.yml'
   workflow_dispatch:
 
@@ -33,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          PYTHONPATH=experiments python experiments/fr1_lagged_accessibility.py \
+          PYTHONPATH=experiments python experiments/fr1_lagged_accessibility_r1022j.py \
             --subject R1022J --session 0 \
             --edf data/R1022J_bipolar.edf --events data/R1022J_events.tsv \
             --permutations 40 --alpha 10 \
