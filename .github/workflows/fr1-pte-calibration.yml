@@ -1,0 +1,54 @@
+name: fr1-pte-calibration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/fr1_pte_calibration.py'
+      - '.github/workflows/fr1-pte-calibration.yml'
+  workflow_dispatch:
+
+jobs:
+  r1022j-pte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy pyedflib
+      - run: mkdir -p data results
+      - name: Synthetic PTE implementation check
+        run: python experiments/fr1_pte_calibration.py --synthetic-only
+      - name: Download one public bipolar FR1 recording and event sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://s3.amazonaws.com/openneuro.org/ds004789/sub-R1022J/ses-0/ieeg'
+          curl --fail --location --retry 4 --retry-delay 3 --progress-bar \
+            "$base/sub-R1022J_ses-0_task-FR1_acq-bipolar_ieeg.edf" \
+            -o data/R1022J_bipolar.edf
+          curl --fail --location --retry 4 --retry-delay 3 \
+            "$base/sub-R1022J_ses-0_task-FR1_events.tsv" \
+            -o data/R1022J_events.tsv
+          ls -lh data/R1022J_bipolar.edf data/R1022J_events.tsv
+      - name: Run one-subject frequency-direction calibration
+        shell: bash
+        run: |
+          set -o pipefail
+          python experiments/fr1_pte_calibration.py \
+            --edf data/R1022J_bipolar.edf \
+            --events data/R1022J_events.tsv \
+            --surrogates 60 \
+            --out results/fr1-pte-r1022j.json \
+            | tee results/fr1-pte-r1022j.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-pte-r1022j
+          path: |
+            results/fr1-pte-r1022j.json
+            results/fr1-pte-r1022j.txt
