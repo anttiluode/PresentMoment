@@ -1,6 +1,6 @@
 """Targeted metadata inventory for one FR1 iEEG subject.
 
-No neural signal is downloaded.  This prints exact recording sizes, event schema and
+No neural signal is downloaded. This prints exact recording sizes, event schema and
 anatomically relevant electrode/channel rows so a later GitHub Actions analysis can
 select one manageable recording without guessing.
 
@@ -29,10 +29,11 @@ HIP_WORDS = ("hipp", "ca1", "ca2", "ca3", "dentate", "dg", "subiculum")
 PARIETAL_WORDS = (
     "pariet", "angular", "precune", "supramarg", "postcentral", "paracentral",
 )
+TARGET_GROUPS = {"LB", "LC", "LH", "LAIL", "LPSL", "LSS"}
 
 
 def get(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-FR1-inventory/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-FR1-inventory/2"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
@@ -71,7 +72,7 @@ def compact(row: dict[str, str]) -> dict[str, str]:
     preferred = (
         "name", "group", "type", "hemisphere", "ind.region", "stein.region",
         "das.region", "wb.region", "x", "y", "z", "tal.x", "tal.y", "tal.z",
-        "status", "status_description", "sampling_frequency",
+        "status", "status_description", "sampling_frequency", "reference",
     )
     return {k: row[k] for k in preferred if k in row and row[k] not in ("", "n/a", "N/A")}
 
@@ -90,14 +91,16 @@ def main() -> None:
             print(f"{size / (1024**2):9.2f} MiB  {key}")
 
     electrode_files = [str(o["key"]) for o in objects if str(o["key"]).endswith("electrodes.tsv")]
-    channel_files = [str(o["key"]) for o in objects if str(o["key"]).endswith("acq-monopolar_channels.tsv")]
+    mono_files = [str(o["key"]) for o in objects if str(o["key"]).endswith("acq-monopolar_channels.tsv")]
+    bipolar_files = [str(o["key"]) for o in objects if str(o["key"]).endswith("acq-bipolar_channels.tsv")]
     event_files = [str(o["key"]) for o in objects if str(o["key"]).endswith("events.tsv")]
 
-    if not (electrode_files and channel_files and event_files):
+    if not (electrode_files and mono_files and bipolar_files and event_files):
         raise RuntimeError("expected electrode/channel/event sidecars")
 
     electrodes = read_tsv(electrode_files[0])
-    channels = read_tsv(channel_files[0])
+    mono = read_tsv(mono_files[0])
+    bipolar = read_tsv(bipolar_files[0])
     events = read_tsv(event_files[0])
 
     hip = relevant(electrodes, HIP_WORDS)
@@ -115,7 +118,7 @@ def main() -> None:
     for row in par:
         print(json.dumps(compact(row), sort_keys=True))
 
-    channel_by_name = {row.get("name", ""): row for row in channels}
+    channel_by_name = {row.get("name", ""): row for row in mono}
     chosen_names = [row.get("name", "") for row in hip + par if row.get("name")]
     print("\nMATCHING MONOPOLAR CHANNEL ROWS")
     matched = 0
@@ -124,6 +127,17 @@ def main() -> None:
             print(json.dumps(compact(channel_by_name[name]), sort_keys=True))
             matched += 1
     print(f"matched={matched}/{len(chosen_names)} electrode names")
+
+    print("\nBIPOLAR CHANNEL COLUMNS")
+    print(list(bipolar[0].keys()) if bipolar else [])
+    print(f"bipolar_channels={len(bipolar)}")
+    print("\nTARGET-GROUP BIPOLAR CHANNELS")
+    for row in bipolar:
+        name = row.get("name", "")
+        group = row.get("group", "")
+        # Some BIDS exports retain group; others encode source contacts in channel name.
+        if group in TARGET_GROUPS or any(name.startswith(g) for g in TARGET_GROUPS):
+            print(json.dumps(compact(row), sort_keys=True))
 
     print("\nEVENT SCHEMA")
     print(list(events[0].keys()) if events else [])
