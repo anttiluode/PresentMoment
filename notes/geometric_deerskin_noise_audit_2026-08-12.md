@@ -174,3 +174,38 @@ This leaves PresentMoment with a less romantic but stronger question:
 > At a given physiological state, which spatial/spectral degrees of freedom are currently readable or potent at each receiver, and how does that accessible set reconfigure over time?
 
 That is closer to an evolving observability/accessibility geometry than to a width of 'now'.
+
+## 9. Ripple-triggered cortical dimensionality expansion: a modern descendant that survived a first audit
+
+The most productive part of the old holographic noise was not the literal hologram analogy but the thought that a compact event/address could trigger a distributed reconstruction whose readable degrees of freedom change with event age.
+
+Kerrén et al. (2026) provide unusually direct human-iEEG evidence in this direction. Their published processed output contains 12 participant-level ripple-locked dimensionality trajectories, remembered/unsuccessful trial counts, channel counts, and a -1.2 to +1.2 s time axis. Their dimensionality pipeline uses a PCA-eigenvalue elbow in strongly overlapping 60-ms windows after a 200-ms moving-average smoothing step, so exact millisecond boundaries should not be overinterpreted.
+
+A potential finite-sample confound was worth checking because PCA is fit across trials and individual participants can have strongly unequal remembered vs unsuccessful trial counts, even though the group means are matched.
+
+Using the authors' committed `perf_dimensionality.mat` and **fixing the post-ripple window to their reported 470--840 ms cluster before analysis**:
+
+- mean remembered trials = 58.67; unsuccessful = 57.0; paired count p=.910;
+- remembered post-ripple dimension = 3.037;
+- unsuccessful post-ripple dimension = 2.211;
+- post difference = +0.826 components, paired t p=.00310, Wilcoxon p=.00293;
+- in the mirrored -840 to -470 ms pre-ripple control window, the difference is only +0.088, p=.566;
+- therefore the event-locked interaction `(post remembered-unsuccessful) - (pre remembered-unsuccessful)` is +0.738 components, t p=.0278, Wilcoxon p=.0171.
+
+There **is** evidence that finite sample count can influence the raw post-ripple dimensionality magnitude: post condition difference versus log remembered/unsuccessful count ratio has Pearson r=.567, p=.0545. So absolute PCA-elbow dimensionality and the raw condition contrast should be treated cautiously.
+
+But that count imbalance does **not** explain the event-locked expansion:
+
+- event-locked interaction versus log count ratio: Pearson r=.218, p=.495; Spearman rho=.133, p=.681;
+- regression of post difference on count ratio predicts +0.788 components at equal counts, p=.0020;
+- regression of the event-locked interaction on count ratio predicts +0.719 components at equal counts, p=.0374; count-ratio slope p=.495.
+
+This processed-output audit cannot replace recomputing the PCA with explicitly equalized trial counts from the trial-level iEEG, and n=12 is small. Still, the simplest static trial-number explanation does not account for the time-locked change.
+
+The narrower claim that survives is therefore:
+
+> **A hippocampal ripple is followed, during successful retrieval, by an event-locked expansion of cortical representational degrees of freedom.**
+
+That is much closer to a useful modern descendant of the old distributed/holographic intuition than a literal Fourier hologram. It suggests that **accessibility itself has an event age**: after a trigger, the set of cortical dimensions available for reconstruction can expand over hundreds of milliseconds.
+
+For PresentMoment this points to a different candidate variable from temporal width or causal-history depth: the **time-varying effective/task-relevant rank of currently readable state**. A moment may be better represented as an evolving accessibility geometry than as a fixed-width interval.
