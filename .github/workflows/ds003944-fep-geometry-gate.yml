@@ -1,0 +1,111 @@
+name: ds003944-fep-geometry-gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/ds003944_fep_geometry_replication.py'
+      - 'experiments/ds003944_fep_geometry_aggregate.py'
+      - '.github/workflows/ds003944-fep-geometry-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Frozen before any ds003944 EEG outcome with this metric.
+          - {subject: '1448', group: 'Control'}
+          - {subject: '1971', group: 'Control'}
+          - {subject: '1989', group: 'Control'}
+          - {subject: '1999', group: 'Control'}
+          - {subject: '2009', group: 'Control'}
+          - {subject: '2017', group: 'Control'}
+          - {subject: '2025', group: 'Control'}
+          - {subject: '2038', group: 'Control'}
+          - {subject: '2044', group: 'Control'}
+          - {subject: '2071', group: 'Control'}
+          - {subject: '2073', group: 'Control'}
+          - {subject: '2082', group: 'Control'}
+          - {subject: '1824', group: 'Psychosis'}
+          - {subject: '1983', group: 'Psychosis'}
+          - {subject: '1990', group: 'Psychosis'}
+          - {subject: '1998', group: 'Psychosis'}
+          - {subject: '2000', group: 'Psychosis'}
+          - {subject: '2002', group: 'Psychosis'}
+          - {subject: '2015', group: 'Psychosis'}
+          - {subject: '2018', group: 'Psychosis'}
+          - {subject: '2020', group: 'Psychosis'}
+          - {subject: '2028', group: 'Psychosis'}
+          - {subject: '2034', group: 'Psychosis'}
+          - {subject: '2041', group: 'Psychosis'}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy scikit-learn mne
+      - run: mkdir -p data results
+      - name: Download public OpenNeuro BrainVision EEG
+        shell: bash
+        run: |
+          set -euo pipefail
+          s='${{ matrix.subject }}'
+          base="https://s3.amazonaws.com/openneuro.org/ds003944/sub-${s}/eeg/sub-${s}_task-Rest_eeg"
+          curl --fail --location --retry 4 --retry-delay 2 "$base.vhdr" -o "data/sub-${s}_task-Rest_eeg.vhdr"
+          curl --fail --location --retry 4 --retry-delay 2 --progress-bar "$base.eeg" -o "data/sub-${s}_task-Rest_eeg.eeg"
+          # Some BrainVision exports have a marker sidecar; absence is acceptable for rest.
+          curl --fail --location --retry 1 "$base.vmrk" -o "data/sub-${s}_task-Rest_eeg.vmrk" || true
+          echo '--- BrainVision header ---'
+          head -30 "data/sub-${s}_task-Rest_eeg.vhdr"
+      - name: Apply frozen repaired metric
+        shell: bash
+        run: |
+          set -o pipefail
+          s='${{ matrix.subject }}'
+          PYTHONPATH=experiments python experiments/ds003944_fep_geometry_replication.py \
+            --subject "sub-${s}" --group '${{ matrix.group }}' \
+            --vhdr "data/sub-${s}_task-Rest_eeg.vhdr" --surrogates 4 \
+            --out "results/sub-${s}.json" | tee "results/sub-${s}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fep-geom-${{ matrix.subject }}
+          path: |
+            results/sub-${{ matrix.subject }}.json
+            results/sub-${{ matrix.subject }}.txt
+
+  aggregate:
+    needs: analyze
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy scipy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fep-geom-*
+          path: collected
+          merge-multiple: false
+      - name: Aggregate frozen gate
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python experiments/ds003944_fep_geometry_aggregate.py collected \
+            --out results/ds003944-fep-geometry-gate.json \
+            | tee results/ds003944-fep-geometry-gate.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ds003944-fep-geometry-gate
+          path: |
+            results/ds003944-fep-geometry-gate.json
+            results/ds003944-fep-geometry-gate.txt
