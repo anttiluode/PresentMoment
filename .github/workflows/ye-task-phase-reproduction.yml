@@ -1,0 +1,33 @@
+name: ye-task-phase-reproduction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/ye_task_phase_reproduction.py'
+      - '.github/workflows/ye-task-phase-reproduction.yml'
+  workflow_dispatch:
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy h5py remotezip
+      - name: Reproduce public phase split and fixed lag sweep
+        run: python experiments/ye_task_phase_reproduction.py
+      - name: Show compact result
+        run: python - <<'PY'
+          import json
+          p='results/ye_task_phase_reproduction.json'
+          r=json.load(open(p))
+          print(json.dumps(r['aggregate'], indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-task-phase-reproduction
+          path: results/ye_task_phase_reproduction.json
