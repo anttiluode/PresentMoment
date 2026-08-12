@@ -1,0 +1,31 @@
+name: ye-task-remote-subset
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/ye_task_remote_subset.py'
+      - '.github/workflows/ye-task-remote-subset.yml'
+  workflow_dispatch:
+
+jobs:
+  subset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install remotezip
+      - name: Read remote ZIP directory and extract capped processed subset
+        run: python experiments/ye_task_remote_subset.py
+      - name: Show extracted files
+        run: find results/ye_task_subset -type f -printf '%p %k KiB\n' | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-task-processed-subset
+          path: |
+            results/ye_task_subset
+            results/ye_task_zip_manifest.json
