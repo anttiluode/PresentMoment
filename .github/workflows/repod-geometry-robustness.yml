@@ -1,0 +1,37 @@
+name: repod-geometry-robustness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/repod_geometry_robustness.py'
+      - '.github/workflows/repod-geometry-robustness.yml'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy scikit-learn mne pyedflib
+      - run: mkdir -p data results
+      - name: Continuous-filter graph/mode robustness family
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/repod_geometry_robustness.py \
+            --data data/repod_schizophrenia --surrogates 3 \
+            --out results/repod-geometry-robustness.json \
+            | tee results/repod-geometry-robustness.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repod-geometry-robustness
+          path: |
+            results/repod-geometry-robustness.json
+            results/repod-geometry-robustness.txt
