@@ -1,0 +1,21 @@
+name: frontier-mechanism-aliasing
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'experiments/frontier_mechanism_aliasing.py'
+      - '.github/workflows/frontier-mechanism-aliasing.yml'
+  workflow_dispatch:
+
+jobs:
+  identifiability-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run passive-lag identifiability control
+        run: python experiments/frontier_mechanism_aliasing.py
