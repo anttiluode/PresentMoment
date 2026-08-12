@@ -1,0 +1,28 @@
+name: ye-task-spiral-holdout-gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/ye_task_spiral_holdout_gate.py'
+      - '.github/workflows/ye-task-spiral-holdout-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy h5py remotezip scikit-learn
+      - name: Run frozen development-plus-heldout spiral gate
+        run: python experiments/ye_task_spiral_holdout_gate.py
+      - name: Show result
+        run: cat results/ye_task_spiral_holdout_gate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ye-task-spiral-holdout-gate
+          path: results/ye_task_spiral_holdout_gate.json
