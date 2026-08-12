@@ -54,15 +54,27 @@ PAR_PREF = {
 
 
 def get_text(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-multisubject-PTE/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "PresentMoment-multisubject-PTE/2"})
     with urllib.request.urlopen(req, timeout=30) as response:
         return response.read().decode("utf-8", errors="replace")
 
 
 def remote_tsv(subject: str, session: str, suffix: str) -> list[dict[str, str]]:
+    """Fetch one BIDS sidecar using the dataset's actual entity level.
+
+    `electrodes.tsv` is session-level in DS004789 and therefore has no task entity:
+        sub-X_ses-Y_electrodes.tsv
+
+    `acq-bipolar_channels.tsv` is recording/task-level:
+        sub-X_ses-Y_task-FR1_acq-bipolar_channels.tsv
+    """
     base = f"{S3}/{DATASET}/sub-{subject}/ses-{session}/ieeg"
-    name = f"sub-{subject}_ses-{session}_task-FR1_{suffix}"
-    return list(csv.DictReader(io.StringIO(get_text(base + "/" + urllib.parse.quote(name))), delimiter="\t"))
+    if suffix == "electrodes.tsv":
+        name = f"sub-{subject}_ses-{session}_electrodes.tsv"
+    else:
+        name = f"sub-{subject}_ses-{session}_task-FR1_{suffix}"
+    url = base + "/" + urllib.parse.quote(name)
+    return list(csv.DictReader(io.StringIO(get_text(url)), delimiter="\t"))
 
 
 def hemi(row: dict[str, str]) -> str | None:
