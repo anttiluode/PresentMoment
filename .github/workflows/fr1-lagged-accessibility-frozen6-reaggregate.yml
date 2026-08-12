@@ -1,0 +1,42 @@
+name: fr1-lagged-accessibility-frozen6-reaggregate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/fr1_lagged_accessibility_aggregate_v2.py'
+      - '.github/workflows/fr1-lagged-accessibility-frozen6-reaggregate.yml'
+  workflow_dispatch:
+
+jobs:
+  reaggregate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          repository: anttiluode/PresentMoment
+          run-id: 31601490608
+          github-token: ${{ github.token }}
+          pattern: fr1-lagged-accessibility-R*
+          path: collected
+      - run: find collected -maxdepth 3 -type f -print
+      - name: Reaggregate using signed far-history excess
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python experiments/fr1_lagged_accessibility_aggregate_v2.py collected \
+            --out results/fr1-lagged-accessibility-frozen6-signed-summary.json \
+            | tee results/fr1-lagged-accessibility-frozen6-signed-summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-lagged-accessibility-frozen6-signed-summary
+          path: |
+            results/fr1-lagged-accessibility-frozen6-signed-summary.json
+            results/fr1-lagged-accessibility-frozen6-signed-summary.txt
