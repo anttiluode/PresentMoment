@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install --upgrade pip
-      - run: pip install numpy scipy
+      - run: pip install numpy scipy pyedflib
       - run: mkdir -p results
       - name: Run independent/common-drive/timescale controls
         shell: bash
