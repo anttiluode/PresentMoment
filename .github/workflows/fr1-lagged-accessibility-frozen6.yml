@@ -1,0 +1,109 @@
+name: fr1-lagged-accessibility-frozen6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/fr1_lagged_accessibility.py'
+      - 'experiments/fr1_lagged_accessibility_aggregate.py'
+      - '.github/workflows/fr1-lagged-accessibility-frozen6.yml'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # SAME FROZEN outcome-blind anatomy cohort used by fr1-multi-subject-pte.
+          - subject: R1066P
+            session: '1'
+          - subject: R1035M
+            session: '0'
+          - subject: R1125T
+            session: '2'
+          - subject: R1053M
+            session: '0'
+          - subject: R1113T
+            session: '0'
+          - subject: R1106M
+            session: '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy scipy pyedflib
+      - run: mkdir -p data results
+      - name: Download public bipolar EDF + events
+        shell: bash
+        env:
+          SUBJECT: ${{ matrix.subject }}
+          SESSION: ${{ matrix.session }}
+        run: |
+          set -euo pipefail
+          base="https://s3.amazonaws.com/openneuro.org/ds004789/sub-${SUBJECT}/ses-${SESSION}/ieeg"
+          stem="sub-${SUBJECT}_ses-${SESSION}_task-FR1"
+          curl --fail --location --retry 4 --retry-delay 2 --progress-bar \
+            "$base/${stem}_acq-bipolar_ieeg.edf" \
+            -o "data/${SUBJECT}_ses${SESSION}_bipolar.edf"
+          curl --fail --location --retry 4 --retry-delay 2 \
+            "$base/${stem}_events.tsv" \
+            -o "data/${SUBJECT}_ses${SESSION}_events.tsv"
+      - name: Run mismatch-subtracted lagged accessibility
+        shell: bash
+        env:
+          SUBJECT: ${{ matrix.subject }}
+          SESSION: ${{ matrix.session }}
+        run: |
+          set -o pipefail
+          PYTHONPATH=experiments python experiments/fr1_lagged_accessibility.py \
+            --subject "$SUBJECT" --session "$SESSION" \
+            --edf "data/${SUBJECT}_ses${SESSION}_bipolar.edf" \
+            --events "data/${SUBJECT}_ses${SESSION}_events.tsv" \
+            --permutations 40 --alpha 10 \
+            --out "results/fr1-lagged-accessibility-${SUBJECT}-ses${SESSION}.json" \
+            | tee "results/fr1-lagged-accessibility-${SUBJECT}-ses${SESSION}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-lagged-accessibility-${{ matrix.subject }}-ses${{ matrix.session }}
+          path: |
+            results/fr1-lagged-accessibility-${{ matrix.subject }}-ses${{ matrix.session }}.json
+            results/fr1-lagged-accessibility-${{ matrix.subject }}-ses${{ matrix.session }}.txt
+          if-no-files-found: warn
+
+  aggregate:
+    if: always()
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fr1-lagged-accessibility-*
+          path: collected
+      - run: find collected -maxdepth 3 -type f -print
+      - name: Aggregate frozen-cohort history-depth contrast
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python experiments/fr1_lagged_accessibility_aggregate.py collected \
+            --out results/fr1-lagged-accessibility-frozen6-summary.json \
+            | tee results/fr1-lagged-accessibility-frozen6-summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fr1-lagged-accessibility-frozen6-summary
+          path: |
+            results/fr1-lagged-accessibility-frozen6-summary.json
+            results/fr1-lagged-accessibility-frozen6-summary.txt
