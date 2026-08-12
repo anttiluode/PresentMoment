@@ -18,20 +18,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Independently chosen from the strict sidecar screen BEFORE connectivity
-          # outcomes: unique subjects with qualifying anatomy and relatively modest EDFs.
-          - subject: R1001P
+          # FROZEN OUTCOME-BLIND COHORT from workflow run 31593187958.
+          # Rule: strict gray-matter same-hemisphere HIPP+parietal anatomy;
+          # one smallest qualifying session per subject; then six smallest EDFs.
+          # No replacement-cohort connectivity result was read before this list froze.
+          - subject: R1066P
             session: '1'
-          - subject: R1003P
+          - subject: R1035M
             session: '0'
-          - subject: R1006P
-            session: '1'
-          - subject: R1020J
-            session: '0'
-          - subject: R1033D
-            session: '0'
-          - subject: R1034D
+          - subject: R1125T
             session: '2'
+          - subject: R1053M
+            session: '0'
+          - subject: R1113T
+            session: '0'
+          - subject: R1106M
+            session: '1'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
