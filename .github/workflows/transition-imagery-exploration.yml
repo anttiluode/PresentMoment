@@ -24,6 +24,7 @@ jobs:
       - name: Extract frozen exploration MI subjects
         run: |
           python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor, as_completed
           from pathlib import Path
           from remotezip import RemoteZip
 
@@ -32,19 +33,25 @@ jobs:
           out = Path("data_mi")
           out.mkdir(exist_ok=True)
 
-          with RemoteZip(url) as z:
-              by_name = {i.filename: i for i in z.infolist()}
-              for subject in subjects:
+          def extract(subject):
+              # Separate RemoteZip instances avoid sharing a range-reader across threads.
+              with RemoteZip(url) as z:
                   name = f"filtered_downsampled_fif/MI/{subject}.fif"
-                  info = by_name[name]
+                  info = {i.filename: i for i in z.infolist()}[name]
                   target = out / f"{subject}.fif"
-                  print("extract", subject, info.file_size, flush=True)
                   with z.open(info) as src, target.open("wb") as dst:
                       while True:
                           chunk = src.read(4 * 1024 * 1024)
                           if not chunk:
                               break
                           dst.write(chunk)
+                  return subject, info.file_size
+
+          with ThreadPoolExecutor(max_workers=3) as pool:
+              futures = [pool.submit(extract, s) for s in subjects]
+              for f in as_completed(futures):
+                  subject, size = f.result()
+                  print("extracted", subject, size, flush=True)
           PY
       - name: Run preregistered exploration assay
         run: |
