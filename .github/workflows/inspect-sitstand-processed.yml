@@ -1,0 +1,70 @@
+name: inspect-sitstand-processed
+
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-sitstand-processed.yml"
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install readers
+        run: python -m pip install remotezip "mne>=1.8" requests
+      - name: Inspect archive and first subject
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from remotezip import RemoteZip
+          import mne
+
+          url = "https://zenodo.org/records/20348464/files/v2_processed_all.zip?download=1"
+          out = Path('/tmp/sitstand')
+          out.mkdir(parents=True, exist_ok=True)
+
+          with RemoteZip(url) as z:
+              infos = z.infolist()
+              print('MEMBERS', len(infos))
+              for i in infos:
+                  print(f'{i.file_size:12d} {i.filename}')
+
+              candidates = [i for i in infos if i.filename.lower().endswith('.fif') and ('s01' in i.filename.lower() or 'sub01' in i.filename.lower())]
+              if not candidates:
+                  candidates = [i for i in infos if i.filename.lower().endswith('.fif')][:1]
+              if not candidates:
+                  raise RuntimeError('No FIF files in processed archive')
+              info = candidates[0]
+              target = out / Path(info.filename).name
+              print('EXTRACT', info.filename, '->', target, 'bytes', info.file_size)
+              with z.open(info) as src, target.open('wb') as dst:
+                  while True:
+                      chunk = src.read(1024 * 1024)
+                      if not chunk:
+                          break
+                      dst.write(chunk)
+
+          print('LOCAL_SIZE', target.stat().st_size)
+          try:
+              ep = mne.read_epochs(target, preload=False, verbose='ERROR')
+              print('TYPE Epochs')
+              print('INFO sfreq', ep.info['sfreq'], 'nchan', len(ep.ch_names), 'len', len(ep))
+              print('EVENT_ID', ep.event_id)
+              print('CH_NAMES', ep.ch_names)
+              print('TMIN_TMAX', ep.tmin, ep.tmax)
+              print('EVENT_COUNTS')
+              for name, code in ep.event_id.items():
+                  print(name, int((ep.events[:,2] == code).sum()))
+          except Exception as e:
+              print('EPOCHS_READ_FAILED', type(e).__name__, repr(e))
+              raw = mne.io.read_raw_fif(target, preload=False, verbose='ERROR')
+              print('TYPE Raw')
+              print('INFO sfreq', raw.info['sfreq'], 'nchan', len(raw.ch_names), 'n_times', raw.n_times)
+              print('CH_NAMES', raw.ch_names)
+              print('ANNOTATIONS', list(zip(raw.annotations.onset[:50], raw.annotations.description[:50])))
+          PY
