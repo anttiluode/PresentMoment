@@ -15,11 +15,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install remote ZIP reader
-        run: python -m pip install remotezip
-      - name: List S01 raw archive members using HTTP ranges
+      - name: Install remote readers
+        run: python -m pip install remotezip h5py
+      - name: Inspect S01 raw archive and MAT metadata using HTTP ranges
         run: |
           python - <<'PY'
+          import binascii
           from remotezip import RemoteZip
 
           url = "https://zenodo.org/records/20348444/files/v1_raw_S01.zip?download=1"
@@ -29,4 +30,35 @@ jobs:
               print(f"uncompressed_bytes={sum(i.file_size for i in infos)}")
               for i in infos:
                   print(f"{i.file_size:12d}  {i.compress_size:12d}  {i.filename}")
+
+              target = infos[0].filename
+              with z.open(target) as f:
+                  header = f.read(1024)
+              print("header_ascii=", header[:160])
+              print("header_hex=", binascii.hexlify(header[:64]).decode())
+              print("has_hdf5_signature_at_512=", header[512:520] == b"\\x89HDF\\r\\n\\x1a\\n")
+
+              # MATLAB v7.3 is HDF5. h5py can operate on seekable file-like
+              # objects; RemoteZip's member reader is seekable and the archive
+              # member is stored uncompressed, so metadata access should issue
+              # small HTTP range requests rather than downloading ~1 GB.
+              try:
+                  import h5py
+                  with z.open(target) as f:
+                      with h5py.File(f, "r") as h5:
+                          print("ROOT_KEYS")
+                          for key in h5.keys():
+                              obj = h5[key]
+                              shape = getattr(obj, "shape", None)
+                              dtype = getattr(obj, "dtype", None)
+                              print(f"  {key}: type={type(obj).__name__} shape={shape} dtype={dtype}")
+                          print("SHALLOW_TREE")
+                          def visit(name, obj):
+                              if name.count("/") <= 2:
+                                  shape = getattr(obj, "shape", None)
+                                  dtype = getattr(obj, "dtype", None)
+                                  print(f"  {name}: {type(obj).__name__} shape={shape} dtype={dtype}")
+                          h5.visititems(visit)
+              except Exception as exc:
+                  print("H5_INSPECTION_FAILED", type(exc).__name__, repr(exc))
           PY
