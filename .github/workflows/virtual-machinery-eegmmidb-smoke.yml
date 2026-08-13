@@ -18,7 +18,23 @@ jobs:
       - name: Install analysis dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "numpy>=1.26" "mne>=1.8" "scikit-learn>=1.5"
+          python -m pip install "numpy>=1.26" "mne>=1.8" "scikit-learn>=1.5" awscli
+
+      - name: Prefetch three subjects from PhysioNet public S3 mirror
+        run: |
+          set -euo pipefail
+          ROOT=.cache/eegmmidb/MNE-eegbci-data/files/eegmmidb/1.0.0
+          for subject in 001 002 003; do
+            mkdir -p "$ROOT/S${subject}"
+            for run in 03 04 07 08 11 12; do
+              file="S${subject}R${run}.edf"
+              aws s3 cp --only-show-errors --no-sign-request \
+                "s3://physionet-open/eegmmidb/1.0.0/S${subject}/${file}" \
+                "$ROOT/S${subject}/${file}"
+            done
+          done
+          du -sh "$ROOT"
+
       - name: Run three-subject smoke test
         run: |
           python experiments/eegmmidb_virtual_machinery.py \
