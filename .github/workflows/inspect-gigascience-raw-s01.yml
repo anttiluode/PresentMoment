@@ -9,51 +9,30 @@ on:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install remote ZIP reader
-        run: python -m pip install remotezip
-      - name: Inspect bounded S01 MAT prefix using HTTP ranges
+      - name: Install remote MATLAB header readers
+        run: python -m pip install remotezip scipy
+      - name: Inspect S01 MATLAB variable headers using HTTP ranges
         run: |
           python - <<'PY'
-          import re
           from remotezip import RemoteZip
+          from scipy.io import whosmat
 
           url = "https://zenodo.org/records/20348444/files/v1_raw_S01.zip?download=1"
           with RemoteZip(url) as z:
               infos = z.infolist()
-              print(f"members={len(infos)}")
               for i in infos:
-                  print(f"{i.file_size:12d} {i.filename}")
-
-              target = infos[0].filename
-              with z.open(target) as f:
-                  prefix = f.read(16 * 1024 * 1024)
-
-          print("prefix_bytes=", len(prefix))
-          print("mat_header=", prefix[:128])
-          print("hdf5_signature_at_512=", prefix[512:520] == b"\\x89HDF\\r\\n\\x1a\\n")
-
-          # MATLAB v7.3/HDF5 metadata generally exposes dataset/group names as
-          # ASCII strings near the file's metadata blocks.  This is a bounded
-          # reconnaissance probe, not a parser.
-          strings = []
-          seen = set()
-          for m in re.finditer(rb"[A-Za-z_][A-Za-z0-9_ ./-]{3,100}", prefix):
-              s = m.group().decode("ascii", "ignore").strip()
-              low = s.lower()
-              if s not in seen and any(k in low for k in (
-                  "eeg", "emg", "eog", "trigger", "event", "marker", "time",
-                  "soleus", "tibialis", "rectus", "delsys", "signal", "channel",
-                  "session", "data",
-              )):
-                  seen.add(s)
-                  strings.append(s)
-          print("candidate_metadata_strings=")
-          for s in strings[:300]:
-              print("  ", s)
+                  print(f"ZIP {i.file_size:12d} {i.filename}")
+              for info in infos:
+                  print(f"\nMAT {info.filename}")
+                  with z.open(info.filename) as f:
+                      print("header=", f.read(116).decode("ascii", "replace").rstrip("\x00"))
+                      f.seek(0)
+                      for name, shape, cls in whosmat(f):
+                          print(f"VAR name={name!r} shape={shape} class={cls}")
           PY
