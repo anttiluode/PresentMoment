@@ -1,0 +1,32 @@
+name: inspect-gigascience-raw-s01
+
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-gigascience-raw-s01.yml"
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install remote ZIP reader
+        run: python -m pip install remotezip
+      - name: List S01 raw archive members using HTTP ranges
+        run: |
+          python - <<'PY'
+          from remotezip import RemoteZip
+
+          url = "https://zenodo.org/records/20348444/files/v1_raw_S01.zip?download=1"
+          with RemoteZip(url) as z:
+              infos = z.infolist()
+              print(f"members={len(infos)}")
+              print(f"uncompressed_bytes={sum(i.file_size for i in infos)}")
+              for i in infos:
+                  print(f"{i.file_size:12d}  {i.compress_size:12d}  {i.filename}")
+          PY
