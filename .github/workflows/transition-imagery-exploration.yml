@@ -1,0 +1,68 @@
+name: transition-imagery-exploration
+
+on:
+  push:
+    paths:
+      - "experiments/sitstand_transition_imagery.py"
+      - "docs/TRANSITION_IMAGERY_GATE.md"
+      - ".github/workflows/transition-imagery-exploration.yml"
+  workflow_dispatch:
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install remotezip "mne>=1.8" "scikit-learn>=1.5"
+      - name: Extract frozen exploration MI subjects
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from remotezip import RemoteZip
+
+          url = "https://zenodo.org/records/20348464/files/v2_processed_all.zip?download=1"
+          subjects = ["S01", "S02", "S03", "S04", "S06", "S07"]
+          out = Path("data_mi")
+          out.mkdir(exist_ok=True)
+
+          with RemoteZip(url) as z:
+              by_name = {i.filename: i for i in z.infolist()}
+              for subject in subjects:
+                  name = f"filtered_downsampled_fif/MI/{subject}.fif"
+                  info = by_name[name]
+                  target = out / f"{subject}.fif"
+                  print("extract", subject, info.file_size, flush=True)
+                  with z.open(info) as src, target.open("wb") as dst:
+                      while True:
+                          chunk = src.read(4 * 1024 * 1024)
+                          if not chunk:
+                              break
+                          dst.write(chunk)
+          PY
+      - name: Run preregistered exploration assay
+        run: |
+          python experiments/sitstand_transition_imagery.py \
+            --data-dir data_mi \
+            --subjects S01 S02 S03 S04 S06 S07 \
+            --out-csv artifacts/transition_imagery_exploration.csv \
+            --out-json artifacts/transition_imagery_exploration.json
+      - name: Show result
+        if: always()
+        run: |
+          if [ -f artifacts/transition_imagery_exploration.json ]; then
+            cat artifacts/transition_imagery_exploration.json
+          fi
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transition-imagery-exploration
+          path: artifacts/
+          if-no-files-found: warn
