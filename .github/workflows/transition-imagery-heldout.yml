@@ -1,0 +1,73 @@
+name: transition-imagery-heldout
+
+on:
+  push:
+    paths:
+      - ".github/workflows/transition-imagery-heldout.yml"
+  workflow_dispatch:
+
+jobs:
+  heldout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install remotezip "mne>=1.8" "scikit-learn>=1.5"
+      - name: Extract frozen held-out MI subjects
+        run: |
+          python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from pathlib import Path
+          from remotezip import RemoteZip
+
+          url = "https://zenodo.org/records/20348464/files/v2_processed_all.zip?download=1"
+          subjects = [f"S{n:02d}" for n in range(8, 24)]
+          out = Path("data_mi")
+          out.mkdir(exist_ok=True)
+
+          def extract(subject):
+              with RemoteZip(url) as z:
+                  name = f"filtered_downsampled_fif/MI/{subject}.fif"
+                  info = {i.filename: i for i in z.infolist()}[name]
+                  target = out / f"{subject}.fif"
+                  with z.open(info) as src, target.open("wb") as dst:
+                      while True:
+                          chunk = src.read(4 * 1024 * 1024)
+                          if not chunk:
+                              break
+                          dst.write(chunk)
+                  return subject, info.file_size
+
+          with ThreadPoolExecutor(max_workers=5) as pool:
+              futures = [pool.submit(extract, s) for s in subjects]
+              for f in as_completed(futures):
+                  subject, size = f.result()
+                  print("extracted", subject, size, flush=True)
+          PY
+      - name: Run frozen held-out gate
+        run: |
+          python experiments/sitstand_transition_imagery.py \
+            --data-dir data_mi \
+            --subjects S08 S09 S10 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 \
+            --gate \
+            --out-csv artifacts/transition_imagery_heldout.csv \
+            --out-json artifacts/transition_imagery_heldout.json
+      - name: Show held-out verdict
+        if: always()
+        run: |
+          if [ -f artifacts/transition_imagery_heldout.json ]; then
+            cat artifacts/transition_imagery_heldout.json
+          fi
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transition-imagery-heldout
+          path: artifacts/
+          if-no-files-found: warn
