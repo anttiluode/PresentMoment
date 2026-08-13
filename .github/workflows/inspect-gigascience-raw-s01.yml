@@ -15,17 +15,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install remote ZIP reader
-        run: python -m pip install remotezip
-      - name: List MATLAB variables using only headers and seeks
+      - name: Install range readers
+        run: python -m pip install remotezip requests
+      - name: List MATLAB variables using direct HTTP byte ranges
         run: |
           python - <<'PY'
           import struct
           import zlib
+          import requests
           from remotezip import RemoteZip
 
+          URL = 'https://zenodo.org/records/20348444/files/v1_raw_S01.zip?download=1'
           MI_MATRIX = 14
           MI_COMPRESSED = 15
+
+          def get_range(start, n):
+              if n <= 0:
+                  return b''
+              r = requests.get(
+                  URL,
+                  headers={'Range': f'bytes={start}-{start+n-1}'},
+                  timeout=60,
+              )
+              r.raise_for_status()
+              if r.status_code != 206:
+                  raise RuntimeError(f'Range not honored: HTTP {r.status_code}')
+              return r.content
 
           def pad8(n):
               return (n + 7) & ~7
@@ -43,68 +58,75 @@ jobs:
               return typ, n, raw, start + pad8(n)
 
           def matrix_name_dims(prefix):
-              # prefix begins with an miMATRIX tag or directly with its payload.
-              if len(prefix) >= 8:
-                  typ, n = struct.unpack_from('<II', prefix, 0)
-                  off = 8 if typ == MI_MATRIX else 0
-              else:
-                  return None, None
-              try:
-                  _, _, _, off = subelement(prefix, off)  # array flags
-                  _, _, dims_raw, off = subelement(prefix, off)
-                  dims = struct.unpack('<' + 'i' * (len(dims_raw)//4), dims_raw)
-                  _, _, name_raw, off = subelement(prefix, off)
-                  name = name_raw.decode('utf-8', 'replace')
-                  return name, dims
-              except Exception as exc:
-                  return f'<parse-error:{exc}>', None
+              typ, _ = struct.unpack_from('<II', prefix, 0)
+              off = 8 if typ == MI_MATRIX else 0
+              _, _, _, off = subelement(prefix, off)  # flags
+              _, _, dims_raw, off = subelement(prefix, off)
+              dims = struct.unpack('<' + 'i' * (len(dims_raw)//4), dims_raw)
+              _, _, name_raw, off = subelement(prefix, off)
+              return name_raw.decode('utf-8', 'replace'), dims
 
-          def list_mat(f):
-              hdr = f.read(128)
+          def member_data_start(info):
+              local = get_range(info.header_offset, 30)
+              sig, = struct.unpack_from('<I', local, 0)
+              if sig != 0x04034B50:
+                  raise RuntimeError(f'bad local ZIP header {sig:#x}')
+              fname_len, extra_len = struct.unpack_from('<HH', local, 26)
+              return info.header_offset + 30 + fname_len + extra_len
+
+          def read_member(info, rel, n):
+              if info.compress_type != 0:
+                  raise RuntimeError(f'{info.filename}: ZIP method {info.compress_type}, expected STORE')
+              if rel < 0 or rel+n > info.file_size:
+                  raise RuntimeError('member range outside file')
+              return get_range(member_data_start(info) + rel, n)
+
+          def list_mat(info):
+              hdr = read_member(info, 0, 128)
               print('HEADER', hdr[:116].decode('ascii', 'replace').rstrip('\x00'))
+              print('ENDIAN', hdr[126:128])
               if hdr[126:128] != b'IM':
-                  raise RuntimeError(f'Unexpected endian marker {hdr[126:128]!r}')
+                  raise RuntimeError('Only little-endian MATLAB v5 supported')
+
+              pos = 128
               idx = 0
-              while True:
-                  pos = f.tell()
-                  tag = f.read(8)
-                  if not tag:
-                      break
-                  if len(tag) < 8:
-                      print('TRUNCATED_TAG', pos, len(tag)); break
+              while pos + 8 <= info.file_size:
+                  tag = read_member(info, pos, 8)
                   typ, n = struct.unpack('<II', tag)
+                  if n > info.file_size:
+                      raise RuntimeError(f'implausible element size {n} at {pos}')
+
                   if typ == MI_MATRIX:
-                      want = min(n, 4096)
-                      body_prefix = f.read(want)
-                      name, dims = matrix_name_dims(tag + body_prefix)
+                      prefix = tag + read_member(info, pos + 8, min(n, 4096))
+                      name, dims = matrix_name_dims(prefix)
                       print(f'VAR {idx} pos={pos} type=miMATRIX bytes={n} name={name!r} dims={dims}')
-                      f.seek(pos + 8 + pad8(n))
                   elif typ == MI_COMPRESSED:
-                      # Decompress only enough bytes to recover the nested miMATRIX
-                      # flags/dimensions/name, then skip the giant compressed payload.
                       decomp = zlib.decompressobj()
                       out = bytearray()
-                      remaining = n
-                      while remaining > 0 and len(out) < 4096:
-                          chunk = f.read(min(65536, remaining))
-                          if not chunk:
-                              break
-                          remaining -= len(chunk)
-                          out.extend(decomp.decompress(chunk, 4096 - len(out)))
+                      rel = pos + 8
+                      left = n
+                      while left and len(out) < 4096:
+                          take = min(65536, left)
+                          chunk = read_member(info, rel, take)
+                          rel += take
+                          left -= take
+                          out.extend(decomp.decompress(chunk, 4096-len(out)))
                       name, dims = matrix_name_dims(bytes(out))
                       print(f'VAR {idx} pos={pos} type=miCOMPRESSED bytes={n} name={name!r} dims={dims}')
-                      f.seek(pos + 8 + pad8(n))
                   else:
                       print(f'TOP {idx} pos={pos} type={typ} bytes={n}')
-                      f.seek(pos + 8 + pad8(n))
+
+                  pos += 8 + pad8(n)
                   idx += 1
                   if idx > 1000:
-                      raise RuntimeError('Too many top-level MAT elements')
+                      raise RuntimeError('too many MAT elements')
 
-          url = 'https://zenodo.org/records/20348444/files/v1_raw_S01.zip?download=1'
-          with RemoteZip(url) as z:
-              for info in z.infolist():
-                  print(f'\nZIP {info.file_size} {info.filename}')
-                  with z.open(info.filename) as f:
-                      list_mat(f)
+          # RemoteZip is used only to fetch the small ZIP central directory.
+          # The giant stored members are then inspected by direct byte ranges.
+          with RemoteZip(URL) as z:
+              infos = z.infolist()
+          print('members', len(infos))
+          for info in infos:
+              print(f'\nZIP name={info.filename} size={info.file_size} method={info.compress_type} header_offset={info.header_offset}')
+              list_mat(info)
           PY
