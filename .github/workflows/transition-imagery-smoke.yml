@@ -1,0 +1,41 @@
+name: transition-imagery-smoke
+
+on:
+  push:
+    paths:
+      - ".github/workflows/transition-imagery-smoke.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: python -m pip install remotezip "mne>=1.8" "scikit-learn>=1.5"
+      - name: Extract S01
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from remotezip import RemoteZip
+          url = "https://zenodo.org/records/20348464/files/v2_processed_all.zip?download=1"
+          name = "filtered_downsampled_fif/MI/S01.fif"
+          out = Path("data_mi"); out.mkdir()
+          with RemoteZip(url) as z:
+              info = {i.filename:i for i in z.infolist()}[name]
+              with z.open(info) as src, (out/'S01.fif').open('wb') as dst:
+                  while True:
+                      chunk = src.read(4*1024*1024)
+                      if not chunk: break
+                      dst.write(chunk)
+          PY
+      - name: Run frozen assay as smoke only
+        run: |
+          python experiments/sitstand_transition_imagery.py \
+            --data-dir data_mi --subjects S01 \
+            --out-csv artifacts/smoke.csv --out-json artifacts/smoke.json
+          cat artifacts/smoke.json
