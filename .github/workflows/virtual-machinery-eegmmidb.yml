@@ -21,7 +21,31 @@ jobs:
       - name: Install analysis dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "numpy>=1.26" "mne>=1.8" "scikit-learn>=1.5"
+          python -m pip install "numpy>=1.26" "mne>=1.8" "scikit-learn>=1.5" awscli
+
+      - name: Prefetch cohort from PhysioNet public S3 mirror
+        run: |
+          set -euo pipefail
+          ROOT=.cache/eegmmidb/MNE-eegbci-data/files/eegmmidb/1.0.0
+          mkdir -p "$ROOT"
+          running=0
+          for n in $(seq 1 12); do
+            subject=$(printf "%03d" "$n")
+            mkdir -p "$ROOT/S${subject}"
+            for run in 03 04 07 08 11 12; do
+              file="S${subject}R${run}.edf"
+              aws s3 cp --only-show-errors --no-sign-request \
+                "s3://physionet-open/eegmmidb/1.0.0/S${subject}/${file}" \
+                "$ROOT/S${subject}/${file}" &
+              running=$((running + 1))
+              if [ "$running" -ge 8 ]; then
+                wait -n
+                running=$((running - 1))
+              fi
+            done
+          done
+          wait
+          du -sh "$ROOT"
 
       - name: Run execution-to-imagery transfer test
         run: |
